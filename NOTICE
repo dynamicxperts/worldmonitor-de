@@ -1,0 +1,14 @@
+This product includes modifications by Dynamic Experts Inc to the
+upstream WorldMonitor project (https://github.com/koala73/worldmonitor).
+
+Modifications:
+  - Added variants/dynamicexperts.com.config.ts variant binding
+    hostnames {dynamicexperts.com,sudoself.com,*.sudoself.com,
+    globe.dynamicexperts.com,globe.sudoself.com} to a custom panel set.
+  - Added panels/dynamic-experts/ panels: jet-attribution, mission-control,
+    ultracrusty, war-room, magic-rock-highlights.
+  - Added lib/dynamic-experts-client.ts — typed fetch wrapper around the
+    authenticated outbound API at https://wm-out.api.sudoself.com.
+
+All modifications licensed AGPL-3.0 to match upstream.
+Source: https://github.com/dynamicxperts/worldmonitor-de
