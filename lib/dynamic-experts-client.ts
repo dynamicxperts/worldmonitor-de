@@ -6,18 +6,24 @@
  * read-only, rate-limited Bearer scoped by a server-side Lambda
  * authorizer + WAF behind the API Gateway — leaking it is harmless.
  *
- * Base URL is overridable via NEXT_PUBLIC_DYNAMIC_EXPERTS_API_BASE
+ * Base URL is overridable via VITE_DYNAMIC_EXPERTS_API_BASE
  * (defaults to https://wm-out.api.sudoself.com).
  *
  * All response types mirror the public, white-labeled JSON shape
  * returned by the outbound API.
+ *
+ * Upstream WorldMonitor is a Vite project (not Next.js) — Vite only
+ * exposes import.meta.env.VITE_* to client code. process.env.* would
+ * compile to undefined and silently 401 every API call.
  */
 
+const VITE_ENV = (import.meta as { env?: Record<string, string | undefined> }).env ?? {};
+
 const API_BASE =
-  process.env.NEXT_PUBLIC_DYNAMIC_EXPERTS_API_BASE ??
+  VITE_ENV.VITE_DYNAMIC_EXPERTS_API_BASE ??
   "https://wm-out.api.sudoself.com";
 
-const API_TOKEN = process.env.NEXT_PUBLIC_DYNAMIC_EXPERTS_API_TOKEN ?? "";
+const API_TOKEN = VITE_ENV.VITE_DYNAMIC_EXPERTS_API_TOKEN ?? "";
 
 const DEFAULT_TIMEOUT_MS = 5000;
 

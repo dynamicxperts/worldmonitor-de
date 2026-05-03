@@ -1,0 +1,68 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+
+  "_dynamic_experts_notes": [
+    "STAGED COMPANION generated 2026-05-03 by the Dynamic Experts deploy",
+    "runbook (docs/operations/worldmonitor-deploy-260503.md in the",
+    "dynamicxperts/sudoself repo).",
+    "",
+    "DO NOT replace vercel.json with this file. The fork's existing",
+    "vercel.json carries CSP headers, rewrite rules, and 60+ header",
+    "blocks we want to keep verbatim.",
+    "",
+    "Recommended action: review the keys below and merge ONLY the",
+    "missing ones into the fork's vercel.json. Keep all upstream",
+    "`headers`, `redirects`, `rewrites`, `crons`, `ignoreCommand`",
+    "blocks intact.",
+    "",
+    "CRITICAL: lib/dynamic-experts-client.ts uses",
+    "`process.env.NEXT_PUBLIC_DYNAMIC_EXPERTS_*` but the fork is a Vite",
+    "project. Vite does NOT expose process.env to client code. Either:",
+    "  (a) Patch the client file to use import.meta.env.VITE_* (preferred), or",
+    "  (b) Add a vite.config.ts `define` shim.",
+    "Either way, set the VITE_* env vars below in the Vercel project.",
+    "Setting BOTH NEXT_PUBLIC_* and VITE_* is a safe belt-and-suspenders.",
+    "",
+    "Underscore-prefixed keys (_dynamic_experts_*) are ignored by Vercel."
+  ],
+
+  "framework": "vite",
+
+  "installCommand": "npm ci --prefer-offline",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+
+  "git": {
+    "deploymentEnabled": {
+      "main": true
+    }
+  },
+
+  "_env_vars_for_vercel_project": {
+    "VITE_DYNAMIC_EXPERTS_API_BASE": "https://wm-out.api.sudoself.com",
+    "VITE_DYNAMIC_EXPERTS_API_TOKEN": "<set via `vercel env add` — DO NOT commit>",
+    "VITE_VARIANT": "full",
+    "_also_if_you_chose_fix2_define_shim": {
+      "NEXT_PUBLIC_DYNAMIC_EXPERTS_API_BASE": "https://wm-out.api.sudoself.com",
+      "NEXT_PUBLIC_DYNAMIC_EXPERTS_API_TOKEN": "<same token value>"
+    }
+  },
+
+  "_env_setup_commands": [
+    "# Run these in the fork repo to register the env vars:",
+    "vercel env add VITE_DYNAMIC_EXPERTS_API_TOKEN production",
+    "vercel env add VITE_DYNAMIC_EXPERTS_API_TOKEN preview",
+    "vercel env add VITE_DYNAMIC_EXPERTS_API_BASE  production",
+    "vercel env add VITE_DYNAMIC_EXPERTS_API_BASE  preview",
+    "# If you took the Fix-2 (vite define shim) path, also set:",
+    "vercel env add NEXT_PUBLIC_DYNAMIC_EXPERTS_API_TOKEN production",
+    "vercel env add NEXT_PUBLIC_DYNAMIC_EXPERTS_API_TOKEN preview",
+    "vercel env add NEXT_PUBLIC_DYNAMIC_EXPERTS_API_BASE  production",
+    "vercel env add NEXT_PUBLIC_DYNAMIC_EXPERTS_API_BASE  preview"
+  ],
+
+  "_domain_setup_commands": [
+    "vercel domains add globe.sudoself.com       --scope dynamicexperts",
+    "vercel domains add globe.dynamicexperts.com --scope dynamicexperts"
+  ]
+}
