@@ -10,6 +10,18 @@ import { validateUserApiKey } from './user-api-key';
  * (e.g. framework/systemAppend) should only be honored for premium callers.
  */
 export async function isCallerPremium(request: Request): Promise<boolean> {
+  // BYPASS_AUTH escape hatch (see api/_api-key.js for full rationale).
+  // Self-hosted operators with their own paid upstream credentials should
+  // see premium-only handler fields lit up for read-only GET requests.
+  // Restricted to GET so write/mutation endpoints still enforce normal auth.
+  if (
+    process.env.BYPASS_AUTH === 'true' &&
+    typeof request.method === 'string' &&
+    request.method.toUpperCase() === 'GET'
+  ) {
+    return true;
+  }
+
   // Browser tester keys — validateApiKey returns required:false for trusted origins
   // even when a valid key is present, so we check the header directly first.
   const wmKey =

@@ -41,6 +41,33 @@ export async function validateApiKey(req, options = {}) {
   const key = req.headers.get('X-WorldMonitor-Key') || req.headers.get('X-Api-Key');
   const origin = req.headers.get('Origin') || '';
 
+  // BYPASS_AUTH escape hatch for self-hosted private deployments.
+  //
+  // When BYPASS_AUTH=true is set in the platform environment (e.g. a private
+  // Vercel deployment that has its own paid upstream credentials wired in
+  // via env vars), the gate is dropped for read-only GET data fetches so the
+  // operator's anonymous browser users can hit the data endpoints without
+  // signing in to the upstream WorldMonitor SaaS Clerk tenant.
+  //
+  // Constraints — kept narrow on purpose:
+  //   - GET only. Any write/mutation method (POST/PUT/PATCH/DELETE) still
+  //     goes through normal validation, so subscribe / comment / admin /
+  //     write-back endpoints remain protected.
+  //   - Reports kind: 'enterprise' so downstream gates that check
+  //     keyCheck.kind === 'enterprise' (entitlement bypass, premium check)
+  //     also light up — the operator has paid for the upstream APIs and
+  //     should not be artificially gated by tier checks they never opted
+  //     into when self-hosting the fork.
+  //   - Never enabled by default. Must be explicitly set to the literal
+  //     string "true" in the deployment environment.
+  if (
+    process.env.BYPASS_AUTH === 'true' &&
+    typeof req.method === 'string' &&
+    req.method.toUpperCase() === 'GET'
+  ) {
+    return { valid: true, required: true, kind: 'enterprise' };
+  }
+
   // Desktop app — always require an enterprise key.
   if (isDesktopOrigin(origin)) {
     if (!key) return { valid: false, required: true, error: 'API key required for desktop access' };
