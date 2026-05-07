@@ -205,8 +205,16 @@ const HAPPY_LIGHT_STYLE = '/map-styles/happy-light.json';
 const isHappyVariant = SITE_VARIANT === 'happy';
 
 // Zoom thresholds for layer visibility and labels (matches old Map.ts)
-// Zoom-dependent layer visibility and labels
-const LAYER_ZOOM_THRESHOLDS: Partial<Record<keyof MapLayers, { minZoom: number; showLabels?: number }>> = {
+// Zoom-dependent layer visibility and labels.
+//
+// `maxZoom` is exclusive of the inverse condition: layers with a `maxZoom`
+// fetch from upstream tile/imagery providers that bake a "Zoom Level Not
+// Supported" placeholder PNG into responses above their supported band
+// (currently zoom > 5). Auto-hiding those layers when the user zooms in
+// past their cap eliminates the grey error tiles without removing the
+// toggle from the layer panel — the toggle simply gets the `zoom-hidden`
+// CSS class and reappears when the user zooms back out.
+const LAYER_ZOOM_THRESHOLDS: Partial<Record<keyof MapLayers, { minZoom: number; maxZoom?: number; showLabels?: number }>> = {
   bases: { minZoom: 3, showLabels: 5 },
   nuclear: { minZoom: 3 },
   conflicts: { minZoom: 1, showLabels: 3 },
@@ -216,6 +224,11 @@ const LAYER_ZOOM_THRESHOLDS: Partial<Record<keyof MapLayers, { minZoom: number; 
   irradiators: { minZoom: 4 },
   spaceports: { minZoom: 3 },
   gulfInvestments: { minZoom: 2, showLabels: 5 },
+  // Upstream-zoom-limited overlays — provider serves "Zoom Level Not
+  // Supported" placeholders above zoom 5. Cap to avoid rendering them.
+  gpsJamming: { minZoom: 0, maxZoom: 5 },
+  satellites: { minZoom: 0, maxZoom: 5 },
+  sanctions: { minZoom: 0, maxZoom: 5 },
 };
 // Export for external use
 export { LAYER_ZOOM_THRESHOLDS };
@@ -1491,7 +1504,9 @@ export class DeckGLMap {
     const threshold = LAYER_ZOOM_THRESHOLDS[layerKey];
     if (!threshold) return true;
     const zoom = this.maplibreMap?.getZoom() || 2;
-    return zoom >= threshold.minZoom;
+    if (zoom < threshold.minZoom) return false;
+    if (threshold.maxZoom !== undefined && zoom > threshold.maxZoom) return false;
+    return true;
   }
 
   private buildLayers(): LayersList {
@@ -1707,8 +1722,8 @@ export class DeckGLMap {
       layers.push(this.createAisDisruptionsLayer());
     }
 
-    // GPS/GNSS jamming layer
-    if (mapLayers.gpsJamming && this.gpsJammingHexes.length > 0) {
+    // GPS/GNSS jamming layer — auto-hidden above upstream-supported zoom
+    if (mapLayers.gpsJamming && this.gpsJammingHexes.length > 0 && this.isLayerVisible('gpsJamming')) {
       layers.push(this.createGpsJammingLayer());
     }
 
@@ -1898,8 +1913,8 @@ export class DeckGLMap {
       const resilienceLayer = this.createResilienceChoroplethLayer();
       if (resilienceLayer) layers.push(resilienceLayer);
     }
-    // Sanctions choropleth
-    if (mapLayers.sanctions) {
+    // Sanctions choropleth — auto-hidden above upstream-supported zoom
+    if (mapLayers.sanctions && this.isLayerVisible('sanctions')) {
       const sanctionsLayer = this.createSanctionsChoroplethLayer();
       if (sanctionsLayer) layers.push(sanctionsLayer);
     }
@@ -1915,7 +1930,8 @@ export class DeckGLMap {
       layers.push(this.createRenewableInstallationsLayer());
     }
 
-    if (mapLayers.satellites && filteredImageryScenes.length > 0 && !this.satelliteImageryLayerFailed) {
+    // Orbital surveillance / imagery footprints — auto-hidden above upstream-supported zoom
+    if (mapLayers.satellites && filteredImageryScenes.length > 0 && !this.satelliteImageryLayerFailed && this.isLayerVisible('satellites')) {
       layers.push(this.createImageryFootprintLayer(filteredImageryScenes));
     }
 
@@ -5447,11 +5463,18 @@ export class DeckGLMap {
   private updateZoomHints(): void {
     const toggleList = this.container.querySelector('.deckgl-layer-toggles .toggle-list');
     if (!toggleList) return;
+    const currentZoom = this.maplibreMap?.getZoom() || 2;
     for (const [key, enabled] of Object.entries(this.state.layers)) {
       const toggle = toggleList.querySelector(`.layer-toggle[data-layer="${key}"]`) as HTMLElement | null;
       if (!toggle) continue;
-      const zoomHidden = !!enabled && !this.isLayerVisible(key as keyof MapLayers);
+      const layerKey = key as keyof MapLayers;
+      const zoomHidden = !!enabled && !this.isLayerVisible(layerKey);
       toggle.classList.toggle('zoom-hidden', zoomHidden);
+      // Differentiate "zoom in" vs "zoom out" hints so users know which
+      // direction restores the layer.
+      const threshold = LAYER_ZOOM_THRESHOLDS[layerKey];
+      const overMax = !!threshold?.maxZoom && currentZoom > threshold.maxZoom;
+      toggle.classList.toggle('zoom-out-hint', zoomHidden && overMax);
     }
   }
 

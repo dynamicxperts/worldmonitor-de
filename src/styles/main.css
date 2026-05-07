@@ -15665,6 +15665,10 @@ a.prediction-link:hover {
   pointer-events: none;
 }
 
+.deckgl-layer-toggles .layer-toggle.zoom-hidden.zoom-out-hint::after {
+  content: '🔍−';
+}
+
 .deckgl-layer-toggles .layer-toggle input[type="checkbox"] {
   -webkit-appearance: none;
   appearance: none;
