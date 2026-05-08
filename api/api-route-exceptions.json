@@ -209,6 +209,13 @@
       "removal_issue": null
     },
     {
+      "path": "api/debug-mil.ts",
+      "category": "ops-admin",
+      "reason": "Diagnostic endpoint for the wm-out military-aircraft relay. Reports relay URL, bearer token length, upstream status, body size, and ac-array length so we can see what the Vercel function actually receives from the relay without Vercel function logs. Operator-only; no product surface.",
+      "owner": "@SudoSteve",
+      "removal_issue": null
+    },
+    {
       "path": "api/invalidate-user-api-key-cache.ts",
       "category": "ops-admin",
       "reason": "Admin-gated cache bust for user API key lookups. Internal operator action.",

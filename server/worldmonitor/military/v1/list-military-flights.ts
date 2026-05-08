@@ -50,8 +50,9 @@ const FT_TO_M = 0.3048;
 const KT_TO_MPS = 0.5144;
 const SEEN_CUTOFF_S = 300; // drop aircraft not heard from in >5 min
 
-// v4 cache key — v3 was poisoned by 4 empty deploys (Vercel egress block).
-const REDIS_CACHE_KEY = 'military:flights:v5:mil-relay';
+// v6 cache key — v5 was poisoned by the milFlag-scope-bug + isMilFeed-pattern
+// deploys (2.8.7-2.8.8). Both produced cached empty results.
+const REDIS_CACHE_KEY = 'military:flights:v6:mil-relay';
 const REDIS_CACHE_TTL = 600; // 10 min — be polite to airplanes.live community service
 const REDIS_STALE_KEY = 'military:flights:stale:v1';
 
@@ -297,13 +298,26 @@ export async function listMilitaryFlights(
           const icao24 = (ac.hex || '').toLowerCase();
           if (!icao24) continue;
 
-          // Military filter: when fetching the /v2/mil endpoint the upstream
+          // Military filter: when fetching a `/<v>/mil` endpoint the upstream
           // pre-filters to military, so trust the feed. For a fallback /v2/all
           // override, fall back to the upstream `mil` flag plus callsign and
           // ICAO range heuristics.
-          const isMilFeed = AIRPLANES_LIVE_URL.includes('/v2/mil');
+          //
+          // milFlag is hoisted out of the `if (!isMilFeed)` block on purpose —
+          // 2.8.7 + 2.8.8 had it `const`-scoped inside the block, which made
+          // the reference at `confidence: milFlag ? ...` below a ReferenceError
+          // at runtime. The outer try/catch swallowed that into an empty-flights
+          // response (the bug we shipped 6 deploys chasing).
+          const milFlag = ac.mil === 1 || ac.mil === true;
+          // Match both /v1/mil (our wm-out relay) and /v2/mil (direct
+          // airplanes.live). 2.8.7 only checked '/v2/mil', so the relay path
+          // was treated as /v2/all and the heuristic filter below ran against
+          // a feed whose entries don't necessarily set `mil:1`.
+          const isMilFeed =
+            AIRPLANES_LIVE_URL.endsWith('/mil') ||
+            AIRPLANES_LIVE_URL.includes('/mil?') ||
+            AIRPLANES_LIVE_URL.includes('/mil/');
           if (!isMilFeed) {
-            const milFlag = ac.mil === 1 || ac.mil === true;
             if (!milFlag && !isMilitaryCallsign(callsign) && !isMilitaryHex(icao24)) continue;
           }
 
