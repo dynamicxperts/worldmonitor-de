@@ -29,11 +29,26 @@ const RELAY = readFileSync(
 describe('ais-relay — tanker classification depends on ShipStaticData', () => {
   test('AISStream subscription requests both PositionReport AND ShipStaticData', () => {
     // Without ShipStaticData, ShipType is never populated and tanker capture
-    // fails on every position report.
+    // fails on every position report. PositionReport is also required — the
+    // subscription accepts an expanded type list (Class B reports, ATON, etc.)
+    // as long as PositionReport AND ShipStaticData are both present.
+    const subscriptionMatch = RELAY.match(
+      /FilterMessageTypes:\s*\[([^\]]*)\]/,
+    );
+    assert.ok(
+      subscriptionMatch,
+      'AISStream subscription must declare FilterMessageTypes',
+    );
+    const types = subscriptionMatch[1];
     assert.match(
-      RELAY,
-      /FilterMessageTypes:\s*\[\s*['"]PositionReport['"]\s*,\s*['"]ShipStaticData['"]\s*\]/,
-      'AISStream subscription must request both PositionReport and ShipStaticData',
+      types,
+      /['"]PositionReport['"]/,
+      'AISStream subscription must request PositionReport',
+    );
+    assert.match(
+      types,
+      /['"]ShipStaticData['"]/,
+      'AISStream subscription must request ShipStaticData',
     );
   });
 
