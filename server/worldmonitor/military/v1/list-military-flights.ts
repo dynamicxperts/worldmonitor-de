@@ -51,7 +51,7 @@ const KT_TO_MPS = 0.5144;
 const SEEN_CUTOFF_S = 300; // drop aircraft not heard from in >5 min
 
 // v4 cache key — v3 was poisoned by 4 empty deploys (Vercel egress block).
-const REDIS_CACHE_KEY = 'military:flights:v4:mil-relay';
+const REDIS_CACHE_KEY = 'military:flights:v5:mil-relay';
 const REDIS_CACHE_TTL = 600; // 10 min — be polite to airplanes.live community service
 const REDIS_STALE_KEY = 'military:flights:stale:v1';
 
