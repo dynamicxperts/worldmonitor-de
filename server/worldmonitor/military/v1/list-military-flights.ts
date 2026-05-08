@@ -10,10 +10,34 @@ import type {
 import { isMilitaryCallsign, isMilitaryHex, detectAircraftType, UPSTREAM_TIMEOUT_MS } from './_shared';
 import { cachedFetchJson, getRawJson } from '../../../_shared/redis';
 import { markNoCacheResponse } from '../../../_shared/response-headers';
-import { getRelayBaseUrl, getRelayHeaders } from '../../../_shared/relay';
 
-const REDIS_CACHE_KEY = 'military:flights:v1';
-const REDIS_CACHE_TTL = 600; // 10 min — reduce upstream API pressure
+// Aviation backend: airplanes.live (community ADS-B aggregator).
+//
+// We migrated off OpenSky in 2026-05 because OpenSky's Cloudflare WAF blocks
+// every Vercel egress IP by deliberate policy (confirmed via OpenSky GitHub
+// issues #184/#221 and OpenSky forum). Even paid client credentials don't
+// help — the block is at the edge before auth. airplanes.live serves the
+// same /states/all-equivalent payload (`/v2/all`) without auth and accepts
+// cloud IPs as long as the User-Agent is polite and contains contact info.
+//
+// Field translation (airplanes.live -> downstream proto shape):
+//   hex      -> id / hexCode (uppercase)
+//   flight   -> callsign (string, may have trailing whitespace)
+//   lat,lon  -> location.{latitude,longitude} (degrees, same as OpenSky)
+//   alt_baro -> altitude (FEET in upstream → multiply by 0.3048 for METERS,
+//               which is what the proto / OpenSky code expects)
+//   gs       -> speed    (KNOTS in upstream → multiply by 0.5144 for M/S)
+//   track    -> heading  (degrees, same as OpenSky)
+//   seen     -> staleness gate; drop entries with seen > SEEN_CUTOFF_S
+const AIRPLANES_LIVE_URL = process.env.AIRPLANES_LIVE_URL || 'https://api.airplanes.live/v2/all';
+const AIRPLANES_LIVE_UA =
+  'dynamic-experts-worldmonitor-de/1.0 (+https://dynamicexperts.com)';
+const FT_TO_M = 0.3048;
+const KT_TO_MPS = 0.5144;
+const SEEN_CUTOFF_S = 300; // drop aircraft not heard from in >5 min
+
+const REDIS_CACHE_KEY = 'military:flights:v2:airplanes-live';
+const REDIS_CACHE_TTL = 600; // 10 min — be polite to airplanes.live community service
 const REDIS_STALE_KEY = 'military:flights:stale:v1';
 
 /** Snap a coordinate to a grid step so nearby bbox values share cache entries. */
@@ -207,54 +231,84 @@ export async function listMilitaryFlights(
       cacheKey,
       REDIS_CACHE_TTL,
       async () => {
-        const isSidecar = (process.env.LOCAL_API_MODE || '').includes('sidecar');
-        const relayBase = isSidecar ? null : getRelayBaseUrl();
-        const baseUrl = isSidecar ? 'https://opensky-network.org/api/states/all' : relayBase ? relayBase + '/opensky' : null;
-
-        if (!baseUrl) return null;
-
-        const fetchBB = {
-          lamin: quantize(req.swLat, BBOX_GRID_STEP) - BBOX_GRID_STEP / 2,
-          lamax: quantize(req.neLat, BBOX_GRID_STEP) + BBOX_GRID_STEP / 2,
-          lomin: quantize(req.swLon, BBOX_GRID_STEP) - BBOX_GRID_STEP / 2,
-          lomax: quantize(req.neLon, BBOX_GRID_STEP) + BBOX_GRID_STEP / 2,
-        };
-        const params = new URLSearchParams();
-        params.set('lamin', String(fetchBB.lamin));
-        params.set('lamax', String(fetchBB.lamax));
-        params.set('lomin', String(fetchBB.lomin));
-        params.set('lomax', String(fetchBB.lomax));
-
-        const url = `${baseUrl!}${params.toString() ? '?' + params.toString() : ''}`;
-        const resp = await fetch(url, {
-          headers: getRelayHeaders(),
+        // Single global airplanes.live fetch, then post-filter to bbox.
+        // /v2/all is ~6-7 MB JSON but only fetched once per REDIS_CACHE_TTL
+        // window (10 min) across all map views — well within polite-use.
+        const resp = await fetch(AIRPLANES_LIVE_URL, {
+          headers: {
+            'User-Agent': AIRPLANES_LIVE_UA,
+            Accept: 'application/json',
+          },
           signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
         });
 
         if (!resp.ok) return null;
 
-        const data = (await resp.json()) as { states?: Array<[string, string, ...unknown[]]> };
-        if (!data.states) return null;
+        const data = (await resp.json()) as {
+          ac?: Array<{
+            hex?: string;
+            flight?: string;
+            lat?: number | null;
+            lon?: number | null;
+            alt_baro?: number | string | null;
+            alt_geom?: number | null;
+            gs?: number | null;
+            track?: number | null;
+            seen?: number | null;
+            mil?: number | boolean;
+            category?: string;
+          }>;
+        };
+        if (!Array.isArray(data.ac)) return null;
 
         const flights: ListMilitaryFlightsResponse['flights'] = [];
-        for (const state of data.states) {
-          const [icao24, callsign, , , , lon, lat, altitude, onGround, velocity, heading] = state as [
-            string, string, unknown, unknown, unknown, number | null, number | null, number | null, boolean, number | null, number | null,
-          ];
-          if (lat == null || lon == null || onGround) continue;
-          if (!isMilitaryCallsign(callsign) && !isMilitaryHex(icao24)) continue;
+        for (const ac of data.ac) {
+          const lat = ac.lat;
+          const lon = ac.lon;
+          if (lat == null || lon == null) continue;
+
+          // alt_baro can be the literal string "ground"
+          const onGround = typeof ac.alt_baro === 'string' && ac.alt_baro.toLowerCase() === 'ground';
+          if (onGround) continue;
+
+          // Drop stale entries — `seen` is seconds since last contact.
+          if (typeof ac.seen === 'number' && ac.seen > SEEN_CUTOFF_S) continue;
+
+          const callsign = (ac.flight || '').trim();
+          const icao24 = (ac.hex || '').toLowerCase();
+          if (!icao24) continue;
+
+          // Military filter: prefer the upstream `mil` flag when set, but
+          // also accept callsign- and ICAO-range-based detection so we don't
+          // miss aircraft airplanes.live hasn't tagged yet. Mirrors the
+          // pre-existing OpenSky behavior.
+          const milFlag = ac.mil === 1 || ac.mil === true;
+          if (!milFlag && !isMilitaryCallsign(callsign) && !isMilitaryHex(icao24)) continue;
 
           const aircraftType = detectAircraftType(callsign);
           // Canonicalize hex_code to uppercase — the seed cron
           // (scripts/seed-military-flights.mjs) writes uppercase, and
           // src/services/military-flights.ts getFlightByHex uppercases the
-          // lookup input. Preserving OpenSky's lowercase here would break
-          // every hex lookup silently.
+          // lookup input. Preserving lowercase here would break every hex
+          // lookup silently.
           const hex = icao24.toUpperCase();
+
+          // Altitude: airplanes.live ships FEET. Downstream proto shape
+          // expects METERS (matches OpenSky semantics).
+          const altRaw =
+            typeof ac.alt_geom === 'number'
+              ? ac.alt_geom
+              : typeof ac.alt_baro === 'number'
+                ? ac.alt_baro
+                : null;
+          const altitudeM = altRaw != null ? altRaw * FT_TO_M : 0;
+
+          // Velocity: airplanes.live `gs` is KNOTS. Proto expects M/S.
+          const velocityMps = typeof ac.gs === 'number' ? ac.gs * KT_TO_MPS : 0;
 
           flights.push({
             id: hex,
-            callsign: (callsign || '').trim(),
+            callsign,
             hexCode: hex,
             registration: '',
             aircraftType: (AIRCRAFT_TYPE_MAP[aircraftType] || 'MILITARY_AIRCRAFT_TYPE_UNKNOWN') as MilitaryAircraftType,
@@ -262,9 +316,9 @@ export async function listMilitaryFlights(
             operator: 'MILITARY_OPERATOR_OTHER',
             operatorCountry: '',
             location: { latitude: lat, longitude: lon },
-            altitude: altitude ?? 0,
-            heading: heading ?? 0,
-            speed: (velocity as number) ?? 0,
+            altitude: altitudeM,
+            heading: typeof ac.track === 'number' ? ac.track : 0,
+            speed: velocityMps,
             verticalRate: 0,
             onGround: false,
             squawk: '',
@@ -272,7 +326,7 @@ export async function listMilitaryFlights(
             destination: '',
             lastSeenAt: Date.now(),
             firstSeenAt: 0,
-            confidence: 'MILITARY_CONFIDENCE_LOW',
+            confidence: milFlag ? 'MILITARY_CONFIDENCE_MEDIUM' : 'MILITARY_CONFIDENCE_LOW',
             isInteresting: false,
             note: '',
             enrichment: undefined,
