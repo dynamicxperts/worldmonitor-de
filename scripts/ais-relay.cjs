@@ -10904,16 +10904,30 @@ function connectUpstream() {
       return;
     }
     console.log('[Relay] Connected to aisstream.io');
+    // AISStream free tier requires explicit BoundingBoxes — without them the
+    // subscription stays in "learning mode" forever and never delivers
+    // messages. Sending a single global bbox `[[-90,-180],[90,180]]` is the
+    // documented way to request worldwide coverage on the free tier.
+    //
+    // FilterMessageTypes expanded beyond the original PositionReport +
+    // ShipStaticData pair so we also pick up:
+    //   - StandardClassBPositionReport / ExtendedClassBPositionReport (Class B
+    //     AIS — fishing vessels, recreational craft)
+    //   - AidsToNavigationReport (buoys / shore stations — useful for the
+    //     port/chokepoint layers)
+    //   - StaticDataReport (Type 24 — Class B static data, for tanker
+    //     classification when the vessel only broadcasts Class B)
     socket.send(JSON.stringify({
       APIKey: API_KEY,
       BoundingBoxes: [[[-90, -180], [90, 180]]],
-      // ShipStaticData (AIS Type 5) carries ShipType, which PositionReport
-      // does not. Required for tanker classification on the Energy Atlas
-      // live-tanker layer — without it, vesselMeta cache stays empty and
-      // tankerReports never populates. Static data is broadcast every ~6
-      // min per vessel (ITU-R M.1371), so the volume add is small relative
-      // to PositionReport (which broadcasts every 2-10s underway).
-      FilterMessageTypes: ['PositionReport', 'ShipStaticData'],
+      FilterMessageTypes: [
+        'PositionReport',
+        'ShipStaticData',
+        'StandardClassBPositionReport',
+        'ExtendedClassBPositionReport',
+        'AidsToNavigationReport',
+        'StaticDataReport',
+      ],
     }));
   });
 
