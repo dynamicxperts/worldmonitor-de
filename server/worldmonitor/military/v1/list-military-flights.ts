@@ -11,14 +11,20 @@ import { isMilitaryCallsign, isMilitaryHex, detectAircraftType, UPSTREAM_TIMEOUT
 import { cachedFetchJson, getRawJson } from '../../../_shared/redis';
 import { markNoCacheResponse } from '../../../_shared/response-headers';
 
-// Aviation backend: airplanes.live (community ADS-B aggregator).
+// Aviation backend: airplanes.live (community ADS-B aggregator), reached
+// through our AWS-hosted wm-out relay (`wm-out.api.sudoself.com/v1/mil`).
 //
 // We migrated off OpenSky in 2026-05 because OpenSky's Cloudflare WAF blocks
-// every Vercel egress IP by deliberate policy (confirmed via OpenSky GitHub
-// issues #184/#221 and OpenSky forum). Even paid client credentials don't
-// help — the block is at the edge before auth. airplanes.live serves the
-// same /states/all-equivalent payload (`/v2/all`) without auth and accepts
-// cloud IPs as long as the User-Agent is polite and contains contact info.
+// every Vercel egress IP by deliberate policy. We then discovered Vercel's
+// egress is *also* silently blocked from `api.airplanes.live` (4 deploys
+// returning 0 flights, identical code from AWS Lambda returns 184+ aircraft).
+// AWS Lambda IPs are NOT blocked, so we route through the wm-out HTTP API
+// (which already proxies our jet, MC, UC, WR, MR endpoints from Vercel ->
+// AWS). The relay Lambda (`sudoself-prod-wm-outbound-mil`) caches /v2/mil
+// for 60s in-process to stay polite to airplanes.live.
+//
+// MIL_RELAY_URL points at the AWS relay; MIL_RELAY_TOKEN is the wm-out
+// bearer token (SSM /sudoself/worldmonitor/outbound-token).
 //
 // Field translation (airplanes.live -> downstream proto shape):
 //   hex      -> id / hexCode (uppercase)
@@ -31,15 +37,21 @@ import { markNoCacheResponse } from '../../../_shared/response-headers';
 //   seen     -> staleness gate; drop entries with seen > SEEN_CUTOFF_S
 // /v2/all was deprecated; use /v2/mil for the military-only feed (a few
 // hundred aircraft worldwide vs. ~30k for /v2/all). The downstream filter
-// (mil / callsign / ICAO heuristic) stays as defense-in-depth.
-const AIRPLANES_LIVE_URL = process.env.AIRPLANES_LIVE_URL || 'https://api.airplanes.live/v2/mil';
+// (mil / callsign / ICAO heuristic) stays as defense-in-depth in case
+// MIL_RELAY_URL is overridden back to a non-/v2/mil source.
+const MIL_RELAY_URL = process.env.MIL_RELAY_URL || 'https://wm-out.api.sudoself.com/v1/mil';
+const MIL_RELAY_TOKEN = process.env.MIL_RELAY_TOKEN || '';
+// Legacy env var preserved for tests / local dev that point straight at
+// airplanes.live. Production uses MIL_RELAY_URL.
+const AIRPLANES_LIVE_URL = process.env.AIRPLANES_LIVE_URL || MIL_RELAY_URL;
 const AIRPLANES_LIVE_UA =
   'dynamic-experts-worldmonitor-de/1.0 (+https://dynamicexperts.com)';
 const FT_TO_M = 0.3048;
 const KT_TO_MPS = 0.5144;
 const SEEN_CUTOFF_S = 300; // drop aircraft not heard from in >5 min
 
-const REDIS_CACHE_KEY = 'military:flights:v3:airplanes-mil';
+// v4 cache key — v3 was poisoned by 4 empty deploys (Vercel egress block).
+const REDIS_CACHE_KEY = 'military:flights:v4:mil-relay';
 const REDIS_CACHE_TTL = 600; // 10 min — be polite to airplanes.live community service
 const REDIS_STALE_KEY = 'military:flights:stale:v1';
 
@@ -237,11 +249,15 @@ export async function listMilitaryFlights(
         // Single global airplanes.live fetch, then post-filter to bbox.
         // /v2/all is ~6-7 MB JSON but only fetched once per REDIS_CACHE_TTL
         // window (10 min) across all map views — well within polite-use.
+        const headers: Record<string, string> = {
+          'User-Agent': AIRPLANES_LIVE_UA,
+          Accept: 'application/json',
+        };
+        if (MIL_RELAY_TOKEN) {
+          headers.Authorization = `Bearer ${MIL_RELAY_TOKEN}`;
+        }
         const resp = await fetch(AIRPLANES_LIVE_URL, {
-          headers: {
-            'User-Agent': AIRPLANES_LIVE_UA,
-            Accept: 'application/json',
-          },
+          headers,
           signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
         });
 
