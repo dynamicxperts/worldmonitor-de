@@ -29,7 +29,10 @@ import { markNoCacheResponse } from '../../../_shared/response-headers';
 //   gs       -> speed    (KNOTS in upstream → multiply by 0.5144 for M/S)
 //   track    -> heading  (degrees, same as OpenSky)
 //   seen     -> staleness gate; drop entries with seen > SEEN_CUTOFF_S
-const AIRPLANES_LIVE_URL = process.env.AIRPLANES_LIVE_URL || 'https://api.airplanes.live/v2/all';
+// /v2/all was deprecated; use /v2/mil for the military-only feed (a few
+// hundred aircraft worldwide vs. ~30k for /v2/all). The downstream filter
+// (mil / callsign / ICAO heuristic) stays as defense-in-depth.
+const AIRPLANES_LIVE_URL = process.env.AIRPLANES_LIVE_URL || 'https://api.airplanes.live/v2/mil';
 const AIRPLANES_LIVE_UA =
   'dynamic-experts-worldmonitor-de/1.0 (+https://dynamicexperts.com)';
 const FT_TO_M = 0.3048;
@@ -278,12 +281,15 @@ export async function listMilitaryFlights(
           const icao24 = (ac.hex || '').toLowerCase();
           if (!icao24) continue;
 
-          // Military filter: prefer the upstream `mil` flag when set, but
-          // also accept callsign- and ICAO-range-based detection so we don't
-          // miss aircraft airplanes.live hasn't tagged yet. Mirrors the
-          // pre-existing OpenSky behavior.
-          const milFlag = ac.mil === 1 || ac.mil === true;
-          if (!milFlag && !isMilitaryCallsign(callsign) && !isMilitaryHex(icao24)) continue;
+          // Military filter: when fetching the /v2/mil endpoint the upstream
+          // pre-filters to military, so trust the feed. For a fallback /v2/all
+          // override, fall back to the upstream `mil` flag plus callsign and
+          // ICAO range heuristics.
+          const isMilFeed = AIRPLANES_LIVE_URL.includes('/v2/mil');
+          if (!isMilFeed) {
+            const milFlag = ac.mil === 1 || ac.mil === true;
+            if (!milFlag && !isMilitaryCallsign(callsign) && !isMilitaryHex(icao24)) continue;
+          }
 
           const aircraftType = detectAircraftType(callsign);
           // Canonicalize hex_code to uppercase — the seed cron
