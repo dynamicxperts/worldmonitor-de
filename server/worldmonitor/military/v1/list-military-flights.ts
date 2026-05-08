@@ -39,7 +39,7 @@ const FT_TO_M = 0.3048;
 const KT_TO_MPS = 0.5144;
 const SEEN_CUTOFF_S = 300; // drop aircraft not heard from in >5 min
 
-const REDIS_CACHE_KEY = 'military:flights:v2:airplanes-live';
+const REDIS_CACHE_KEY = 'military:flights:v3:airplanes-mil';
 const REDIS_CACHE_TTL = 600; // 10 min — be polite to airplanes.live community service
 const REDIS_STALE_KEY = 'military:flights:stale:v1';
 
