@@ -25,6 +25,13 @@ const PUBLIC_API_PATHS = new Set([
   '/api/health',
   '/api/seed-contract-probe',
   '/api/internal/brief-why-matters',
+  // Operator-only diagnostics for the wm-out (military aircraft) and
+  // upstream WS_RELAY_URL (AIS / vessel snapshot) relay paths. Skip the
+  // bot-UA gate so curl + uptime monitors can read them without spoofing
+  // a browser UA. Each endpoint redacts secrets (token length only, no
+  // bearer values) and returns no PII.
+  '/api/debug-mil',
+  '/api/debug-ais',
 ]);
 
 const SOCIAL_IMAGE_UA =
