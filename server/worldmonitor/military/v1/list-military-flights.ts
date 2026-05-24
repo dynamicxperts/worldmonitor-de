@@ -277,6 +277,8 @@ export async function listMilitaryFlights(
             seen?: number | null;
             mil?: number | boolean;
             category?: string;
+            t?: string;     // ICAO type designator (e.g. "C30J", "GLF5")
+            desc?: string;  // human description (e.g. "GULFSTREAM V")
           }>;
         };
         if (!Array.isArray(data.ac)) return null;
@@ -297,6 +299,9 @@ export async function listMilitaryFlights(
           const callsign = (ac.flight || '').trim();
           const icao24 = (ac.hex || '').toLowerCase();
           if (!icao24) continue;
+          // ICAO type designator (e.g. "C30J", "GLF5") — carried to the client
+          // in aircraftModel so the map can pick a type-specific silhouette.
+          const typeCode = (ac.t || '').toUpperCase().trim();
 
           // Military filter: when fetching a `/<v>/mil` endpoint the upstream
           // pre-filters to military, so trust the feed. For a fallback /v2/all
@@ -348,7 +353,7 @@ export async function listMilitaryFlights(
             hexCode: hex,
             registration: '',
             aircraftType: (AIRCRAFT_TYPE_MAP[aircraftType] || 'MILITARY_AIRCRAFT_TYPE_UNKNOWN') as MilitaryAircraftType,
-            aircraftModel: '',
+            aircraftModel: typeCode,
             operator: 'MILITARY_OPERATOR_OTHER',
             operatorCountry: '',
             location: { latitude: lat, longitude: lon },
