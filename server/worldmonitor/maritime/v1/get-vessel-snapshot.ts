@@ -12,6 +12,37 @@ import type {
 
 import { getRelayBaseUrl, getRelayHeaders } from '../../../_shared/relay';
 
+// Per-feature relay override for AIS. The upstream `WS_RELAY_URL` is shared
+// with telegram, OREF, brief-why-matters, list-tech-events, etc. — pointing
+// it at our wm-out aggregator would break those. Setting `AIS_RELAY_URL`
+// (e.g. `https://wm-out.api.sudoself.com/v1`) reroutes the AIS path while
+// leaving the global relay untouched. `AIS_RELAY_TOKEN` is the wm-out
+// bearer (same SSM /sudoself/worldmonitor/api-token). Both env vars are
+// optional: if unset, the handler falls back to the legacy WS_RELAY_URL +
+// RELAY_SHARED_SECRET pair.
+//
+// Mirrors the 2.8.7 MIL_RELAY_URL/MIL_RELAY_TOKEN pattern from
+// list-military-flights.ts so future relay-override knobs follow one shape.
+function getAisRelayBaseUrl(): string | null {
+  const override = process.env.AIS_RELAY_URL;
+  if (override) {
+    return override.replace(/^ws(s?):\/\//, 'http$1://').replace(/\/$/, '');
+  }
+  return getRelayBaseUrl();
+}
+
+function getAisRelayHeaders(): Record<string, string> {
+  const token = process.env.AIS_RELAY_TOKEN;
+  if (token) {
+    return {
+      Accept: 'application/json',
+      Authorization: `Bearer ${token}`,
+      'User-Agent': 'dynamic-experts-worldmonitor-de/1.0 (+https://dynamicexperts.com)',
+    };
+  }
+  return getRelayHeaders();
+}
+
 // ========================================================================
 // Helpers
 // ========================================================================
@@ -173,7 +204,7 @@ async function fetchVesselSnapshotFromRelay(
   bbox: { swLat: number; swLon: number; neLat: number; neLon: number } | null,
 ): Promise<VesselSnapshot | undefined> {
   try {
-    const relayBaseUrl = getRelayBaseUrl();
+    const relayBaseUrl = getAisRelayBaseUrl();
     if (!relayBaseUrl) return undefined;
 
     const params = new URLSearchParams();
@@ -193,7 +224,7 @@ async function fetchVesselSnapshotFromRelay(
     const response = await fetch(
       `${relayBaseUrl}/ais/snapshot?${params.toString()}`,
       {
-        headers: getRelayHeaders(),
+        headers: getAisRelayHeaders(),
         signal: AbortSignal.timeout(10000),
       },
     );

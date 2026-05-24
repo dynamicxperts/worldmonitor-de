@@ -25,7 +25,8 @@ export const config = { runtime: 'edge' };
 const TIMEOUT_MS = 10_000;
 
 function getRelayBaseUrl(): string | null {
-  const raw = process.env.WS_RELAY_URL;
+  const override = process.env.AIS_RELAY_URL;
+  const raw = override || process.env.WS_RELAY_URL;
   if (!raw) return null;
   return raw.replace(/^ws(s?):\/\//, 'http$1://').replace(/\/$/, '');
 }
@@ -35,6 +36,11 @@ function getRelayHeaders(): Record<string, string> {
     Accept: 'application/json',
     'User-Agent': 'wm-debug/1.0 (+https://dynamicexperts.com)',
   };
+  const aisToken = process.env.AIS_RELAY_TOKEN;
+  if (aisToken) {
+    headers.Authorization = `Bearer ${aisToken}`;
+    return headers;
+  }
   const secret = process.env.RELAY_SHARED_SECRET;
   if (!secret) return headers;
   const headerName = (process.env.RELAY_AUTH_HEADER || 'x-relay-key').toLowerCase();
@@ -125,7 +131,9 @@ export default async function handler(_req: Request): Promise<Response> {
   const payload = {
     relay_host: relayHost,
     relay_path: '/ais/snapshot?candidates=true&tankers=true',
+    relay_source: process.env.AIS_RELAY_URL ? 'AIS_RELAY_URL' : (process.env.WS_RELAY_URL ? 'WS_RELAY_URL' : 'none'),
     has_relay_secret: hasRelaySecret,
+    has_ais_relay_token: Boolean(process.env.AIS_RELAY_TOKEN),
     aisstream_api_key_length: (process.env.AISSTREAM_API_KEY || '').length,
     elapsed_ms: Date.now() - startedAt,
     upstream_status: upstreamStatus,
