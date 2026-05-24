@@ -42,6 +42,7 @@ import type { AirportDelayAlert, PositionSample } from '@/services/aviation';
 import { fetchAircraftPositions } from '@/services/aviation';
 import { type IranEvent, getIranEventColor, getIranEventRadius } from '@/services/conflict';
 import { getMilitaryBaseColor } from '@/config/military-base-colors';
+import { SILHOUETTE_ATLAS, SILHOUETTE_ICON_MAPPING, resolvePlaneIcon, resolveShipIcon } from '@/config/silhouette-markers';
 import { getMineralColor } from '@/config/mineral-colors';
 import { getWindColor } from '@/config/wind-colors';
 import { CII_LEVEL_COLORS, type CiiLevel } from '@/config/cii-colors';
@@ -3021,26 +3022,33 @@ export class DeckGLMap {
     });
   }
 
-  private createLiveTankersLayer(): ScatterplotLayer {
-    return new ScatterplotLayer({
+  private createLiveTankersLayer(): IconLayer {
+    return new IconLayer({
       id: 'live-tankers-layer',
       data: this.liveTankers,
+      iconAtlas: SILHOUETTE_ATLAS,
+      iconMapping: SILHOUETTE_ICON_MAPPING,
+      // AIS ship type 80-89 = tanker; resolveShipIcon picks the right hull.
+      getIcon: (d) => resolveShipIcon(d.shipType),
       getPosition: (d) => [d.lon, d.lat],
-      // Radius scales loosely with deadweight class: VLCC > Aframax > Handysize.
-      // AIS ship type 80-89 covers all tanker subtypes; we have no DWT field
-      // in the AIS message itself, so this is a constant fallback. Future
-      // enhancement: enrich via a vessel-registry lookup.
-      getRadius: 2500,
-      getFillColor: (d) => {
-        // Anchored (speed < 0.5 kn) — orange, signals waiting / loading /
+      getSize: 22,
+      getColor: (d) => {
+        // Anchored (speed < 0.5 kn) — amber, signals waiting / loading /
         // potential congestion. Underway (speed >= 0.5 kn) — cyan, normal
         // transit. Unknown / missing speed — gray.
-        if (!Number.isFinite(d.speed)) return [127, 140, 141, 200] as [number, number, number, number];
-        if (d.speed < 0.5) return [255, 183, 3, 220] as [number, number, number, number]; // amber
-        return [0, 209, 255, 220] as [number, number, number, number]; // cyan
+        if (!Number.isFinite(d.speed)) return [127, 140, 141, 210] as [number, number, number, number];
+        if (d.speed < 0.5) return [255, 183, 3, 235] as [number, number, number, number]; // amber
+        return [0, 209, 255, 235] as [number, number, number, number]; // cyan
       },
-      radiusMinPixels: 3,
-      radiusMaxPixels: 8,
+      // Course-over-ground when the relay supplies it (icon art is bow-up, so
+      // negate to align with clockwise-from-north). Falls back to 0 when AIS
+      // course is absent.
+      getAngle: (d) =>
+        -(((d as { course?: number; heading?: number }).course ??
+          (d as { heading?: number }).heading) ?? 0),
+      sizeMinPixels: 12,
+      sizeMaxPixels: 30,
+      billboard: false,
       pickable: true,
     });
   }
@@ -3202,25 +3210,26 @@ export class DeckGLMap {
     });
   }
 
-  private createMilitaryVesselsLayer(vessels: MilitaryVessel[]): ScatterplotLayer {
-    return new ScatterplotLayer({
+  private createMilitaryVesselsLayer(vessels: MilitaryVessel[]): IconLayer<MilitaryVessel> {
+    return new IconLayer<MilitaryVessel>({
       id: 'military-vessels-layer',
       data: vessels,
+      iconAtlas: SILHOUETTE_ATLAS,
+      iconMapping: SILHOUETTE_ICON_MAPPING,
+      getIcon: () => 'ship_military',
       getPosition: (d) => [d.lon, d.lat],
-      getRadius: 6000,
-      getFillColor: (d) => {
-        if (d.usniSource) return [255, 160, 60, 160] as [number, number, number, number]; // Orange, lower alpha for USNI-only
+      getSize: 28,
+      getColor: (d) => {
+        if (d.usniSource) return [255, 160, 60, 220] as [number, number, number, number]; // USNI-only — orange
         return COLORS.vesselMilitary;
       },
-      radiusMinPixels: 4,
-      radiusMaxPixels: 10,
+      // Icon art is bow-up; AIS heading is clockwise-from-north, so negate.
+      getAngle: (d) => -(((d as { heading?: number; course?: number }).heading ??
+        (d as { course?: number }).course) ?? 0),
+      sizeMinPixels: 14,
+      sizeMaxPixels: 36,
+      billboard: false,
       pickable: true,
-      stroked: true,
-      getLineColor: (d) => {
-        if (d.usniSource) return [255, 180, 80, 200] as [number, number, number, number]; // Orange outline
-        return [0, 0, 0, 0] as [number, number, number, number]; // No outline for AIS
-      },
-      lineWidthMinPixels: 2,
     });
   }
 
@@ -3243,19 +3252,28 @@ export class DeckGLMap {
     });
   }
 
-  private createMilitaryFlightsLayer(flights: MilitaryFlight[]): ScatterplotLayer {
-    return new ScatterplotLayer({
+  private createMilitaryFlightsLayer(flights: MilitaryFlight[]): IconLayer<MilitaryFlight> {
+    return new IconLayer<MilitaryFlight>({
       id: 'military-flights-layer',
       data: flights,
+      iconAtlas: SILHOUETTE_ATLAS,
+      iconMapping: SILHOUETTE_ICON_MAPPING,
+      // aircraftModel carries the ICAO type designator (`t`) threaded from the
+      // relay; fall back to the coarse aircraftType enum when it's absent.
+      getIcon: (d) => resolvePlaneIcon(d.aircraftModel, d.aircraftType),
       getPosition: (d) => [d.lon, d.lat],
-      getRadius: 8000,
-      getFillColor: (d) => {
-        if (d.onGround) return [120, 120, 120, 160] as [number, number, number, number];
+      getSize: (d) => (d.onGround ? 20 : 26),
+      getColor: (d) => {
+        if (d.onGround) return [150, 150, 150, 200] as [number, number, number, number];
         const [r, g, b] = altitudeToColor(d.altitude);
-        return [r, g, b, 220] as [number, number, number, number];
+        return [r, g, b, 235] as [number, number, number, number];
       },
-      radiusMinPixels: 4,
-      radiusMaxPixels: 12,
+      // Icon art points north (up); heading is clockwise-from-north, so negate.
+      getAngle: (d) => -(d.heading ?? 0),
+      sizeMinPixels: 14,
+      sizeMaxPixels: 40,
+      sizeScale: 1,
+      billboard: false,
       pickable: true,
     });
   }
