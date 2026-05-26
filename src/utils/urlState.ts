@@ -38,6 +38,11 @@ const LAYER_KEYS: (keyof MapLayers)[] = [
   'satellites',
   'ciiChoropleth',
   'resilienceScore',
+  // deckGLOnly layer promoted to a first-class, URL-addressable layer so
+  // `layers=liveTankers` resolves (previously dropped → reset to `none`) and
+  // round-trips through buildMapUrl when on. See FULL_MAP_LAYERS (default-on)
+  // + VARIANT_LAYER_ORDER.full (allow-set) in map-layer-definitions.ts.
+  'liveTankers',
 ];
 
 const TIME_RANGES: TimeRange[] = ['1h', '6h', '24h', '48h', '7d', 'all'];

@@ -181,6 +181,11 @@ const FULL_MAP_LAYERS: MapLayers = {
   commodityPorts: false,
   webcams: false,
   diseaseOutbreaks: false,
+  // Default-on: live tanker silhouettes inside chokepoint bboxes (AIS ship
+  // type 80-89), served by the wm-out AIS relay's tankerReports. Renders via
+  // DeckGLMap (the default desktop renderer); allow-listed in
+  // VARIANT_LAYER_ORDER.full so sanitizeLayersForVariant keeps it on.
+  liveTankers: true,
 };
 
 const FULL_MOBILE_MAP_LAYERS: MapLayers = {
