@@ -26,27 +26,44 @@ const client = new MaritimeServiceClient(getRpcBaseUrl(), {
   fetch: (...args: Parameters<typeof fetch>) => globalThis.fetch(...args),
 });
 
-// ±2° box around each chokepoint centroid. Tuned in the implementation
-// section of plan U8 — Hormuz traffic at peak transit is ~50-150 vessels
-// in this box, well below the server-side 200/zone cap. Implementer should
-// adjust if a specific zone (e.g. Malacca, much busier) consistently fills
-// the cap.
-const BBOX_HALF_DEGREES = 2;
+// ±3.5° box around each chokepoint centroid (was ±2 in U8). The original
+// ±2 systematically missed the busy tanker concentrations: e.g. the
+// `malacca_strait` centroid (2.5°N, 101.5°E) is ~2.5° NW of the actual
+// Singapore-anchorage cluster (~1°N, 104°E), so ±2 stopped at 103.5°E and
+// caught 0 tankers; ±3.5 reaches 105°E and recovers the cluster (verified
+// 0→28 against live AISStream on 260526). 7° span stays well under the
+// gateway's 10°/side guard. Hormuz peak ~50-150 vessels still fits under
+// the 200/zone server cap; re-tune if a denser zone (Singapore, Dover)
+// consistently fills it.
+const BBOX_HALF_DEGREES = 3.5;
 
 // Cache TTL must match the gateway 'live' tier's s-maxage (60s). Going
 // shorter wastes CDN cache hits; going longer breaks the freshness contract.
 const CACHE_TTL_MS = 60_000;
 
-// Default chokepoints whose live tankers we render. Energy-relevant subset
-// of the full chokepoint registry — global trade hubs that aren't oil/gas
-// chokepoints (e.g. Strait of Dover, English Channel) are skipped.
+// Default chokepoints whose live tankers we render. ALL 13 canonical
+// entries of CHOKEPOINT_REGISTRY — the layer's scope was broadened from
+// the U8 "energy-relevant subset" to every canonical maritime chokepoint
+// so high-traffic non-energy corridors (Dover/English Channel, Gibraltar,
+// Taiwan, Korea, Cape, Lombok, Kerch) also surface their tankers. The
+// energy-only subset left ~half the world's busy waters dark on the
+// default view even with the wired-up + default-on fixes (PR 2.9.1).
 const DEFAULT_CHOKEPOINT_IDS = new Set<string>([
+  // Energy-relevant (U8 originals)
   'hormuz_strait',
   'suez',
   'bab_el_mandeb',
   'malacca_strait',
   'panama',
   'bosphorus', // Turkish Straits per CHOKEPOINT_REGISTRY canonical id
+  // Added 2.9.2 — busy maritime corridors regardless of energy classification
+  'dover_strait',     // English Channel / North Sea approach (122+ tankers typical)
+  'gibraltar',        // Atlantic ↔ Mediterranean gateway
+  'taiwan_strait',    // Far East shipping spine
+  'korea_strait',     // Japan ↔ Korea, busy
+  'cape_of_good_hope',// Southern Africa round-the-Cape route
+  'lombok_strait',    // Deep-draft VLCC alternative to Malacca
+  'kerch_strait',     // Black Sea ↔ Sea of Azov
 ]);
 
 interface CacheSlot {
