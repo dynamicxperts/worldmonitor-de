@@ -6579,7 +6579,13 @@ export class DeckGLMap {
   private lastActiveLayerCount = 0;
 
   private enforceLayerLimit(): void {
-    const WARN_THRESHOLD = 13;
+    // Raised from 13 to 16 in 2.9.3. The 2.9.2 default-on liveTankers
+    // expansion pushed FULL_MAP_LAYERS to exactly 13 active layers on first
+    // load, which tripped the "Performance notice" on every fresh visit
+    // (activeCount 0→13 = `increasing`). 16 gives ~3 layers of headroom past
+    // the default state, so the warning only fires when a user actively
+    // builds a heavy custom view rather than on the stock dashboard.
+    const WARN_THRESHOLD = 16;
     const togglesEl = this.container.querySelector('.deckgl-layer-toggles');
     if (!togglesEl) return;
     const activeCount = Array.from(togglesEl.querySelectorAll<HTMLInputElement>('.layer-toggle input'))
