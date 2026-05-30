@@ -2553,7 +2553,9 @@ export class GlobeMap {
 
   private enforceLayerLimit(): void {
     if (!this.layerTogglesEl) return;
-    const WARN_THRESHOLD = 13;
+    // Raised 13→16 in 2.9.3 — mirrors DeckGLMap to keep the threshold in
+    // lockstep across renderers. See DeckGLMap.ts enforceLayerLimit comment.
+    const WARN_THRESHOLD = 16;
     const activeCount = Array.from(this.layerTogglesEl.querySelectorAll<HTMLInputElement>('.layer-toggle input'))
       .filter(i => i.checked).length;
     const increasing = activeCount > this.lastActiveLayerCount;
